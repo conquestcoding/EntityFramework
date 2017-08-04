@@ -4,36 +4,39 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Microsoft.EntityFrameworkCore.Design.Internal;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Scaffolding.Internal;
 using Microsoft.EntityFrameworkCore.TestUtilities;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
 
+// ReSharper disable StringStartsWithIsCultureSpecific
+
+// ReSharper disable InconsistentNaming
 namespace Microsoft.EntityFrameworkCore.ReverseEngineering
 {
-    public abstract class SqliteE2ETestBase : E2ETestBase
+    public abstract class SqliteE2ETestBase : E2ETestBase<SqliteE2EFixture>
     {
-        public const string TestProjectPath = "testout";
-        public static readonly string TestProjectFullPath = Path.GetFullPath(TestProjectPath);
+        public readonly string TestProjectPath;
+        public readonly string TestProjectFullPath;
 
-        protected SqliteE2ETestBase(ITestOutputHelper output)
-            : base(output)
+        protected SqliteE2ETestBase(SqliteE2EFixture fixture, ITestOutputHelper output)
+            : base(fixture, output)
         {
+            TestProjectPath = Path.Combine(DbSuffix, "testout");
+            TestProjectFullPath = Path.GetFullPath(TestProjectPath);
         }
 
         [Fact]
-        public void One_to_one()
+        public virtual void One_to_one()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("OneToOne" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("OneToOne" + DbSuffix))
             {
                 testStore.ExecuteNonQuery(@"
-CREATE TABLE IF NOT EXISTS Principal (
+CREATE TABLE Principal (
     Id INTEGER PRIMARY KEY AUTOINCREMENT
 );
-CREATE TABLE IF NOT EXISTS Dependent (
+CREATE TABLE Dependent (
     Id INT,
     PrincipalId INT NOT NULL UNIQUE,
     PRIMARY KEY (Id),
@@ -53,7 +56,7 @@ CREATE TABLE IF NOT EXISTS Dependent (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "OneToOne"))
                 {
@@ -74,18 +77,18 @@ CREATE TABLE IF NOT EXISTS Dependent (
         }
 
         [Fact]
-        public void One_to_many()
+        public virtual void One_to_many()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("OneToMany" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("OneToMany" + DbSuffix))
             {
                 testStore.ExecuteNonQuery(@"
-CREATE TABLE IF NOT EXISTS OneToManyPrincipal (
+CREATE TABLE OneToManyPrincipal (
     OneToManyPrincipalID1 INT,
     OneToManyPrincipalID2 INT,
     Other TEXT NOT NULL,
     PRIMARY KEY (OneToManyPrincipalID1, OneToManyPrincipalID2)
 );
-CREATE TABLE IF NOT EXISTS OneToManyDependent (
+CREATE TABLE OneToManyDependent (
     OneToManyDependentID1 INT NOT NULL,
     OneToManyDependentID2 INT NOT NULL,
     SomeDependentEndColumn VARCHAR NOT NULL,
@@ -109,7 +112,7 @@ CREATE TABLE IF NOT EXISTS OneToManyDependent (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "OneToMany"))
                 {
@@ -130,14 +133,14 @@ CREATE TABLE IF NOT EXISTS OneToManyDependent (
         }
 
         [Fact]
-        public void Many_to_many()
+        public virtual void Many_to_many()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("ManyToMany" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("ManyToMany" + DbSuffix))
             {
                 testStore.ExecuteNonQuery(@"
-CREATE TABLE IF NOT EXISTS Users ( Id PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS Groups (Id PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS Users_Groups (
+CREATE TABLE Users ( Id PRIMARY KEY);
+CREATE TABLE Groups (Id PRIMARY KEY);
+CREATE TABLE Users_Groups (
     Id PRIMARY KEY,
     UserId,
     GroupId,
@@ -159,7 +162,7 @@ CREATE TABLE IF NOT EXISTS Users_Groups (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "ManyToMany"))
                 {
@@ -181,11 +184,11 @@ CREATE TABLE IF NOT EXISTS Users_Groups (
         }
 
         [Fact]
-        public void Self_referencing()
+        public virtual void Self_referencing()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("SelfRef" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("SelfRef" + DbSuffix))
             {
-                testStore.ExecuteNonQuery(@"CREATE TABLE IF NOT EXISTS SelfRef (
+                testStore.ExecuteNonQuery(@"CREATE TABLE SelfRef (
     Id INTEGER PRIMARY KEY,
     SelfForeignKey INTEGER,
     FOREIGN KEY (SelfForeignKey) REFERENCES SelfRef (Id)
@@ -203,7 +206,7 @@ CREATE TABLE IF NOT EXISTS Users_Groups (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "SelfRef"))
                 {
@@ -223,9 +226,9 @@ CREATE TABLE IF NOT EXISTS Users_Groups (
         }
 
         [Fact]
-        public void Missing_primary_key()
+        public virtual void Missing_primary_key()
         {
-            using (var testStore = SqliteTestStore.CreateScratch())
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("NoPk" + DbSuffix))
             {
                 testStore.ExecuteNonQuery("CREATE TABLE Alicia ( Keys TEXT );");
 
@@ -242,23 +245,23 @@ CREATE TABLE IF NOT EXISTS Users_Groups (
                     useDatabaseNames: false);
 
                 var errorMessage = DesignStrings.UnableToGenerateEntityType("Alicia");
-                Assert.Contains("warn: " + DesignStrings.MissingPrimaryKey("Alicia"), _reporter.Messages);
-                Assert.Contains("warn: " + errorMessage, _reporter.Messages);
+                Assert.Contains("warn: " + DesignStrings.MissingPrimaryKey("Alicia"), Reporter.Messages);
+                Assert.Contains("warn: " + errorMessage, Reporter.Messages);
                 Assert.Contains(errorMessage, InMemoryFiles.RetrieveFileContents(TestProjectFullPath, Path.GetFileName(results.ContextFile)));
             }
         }
 
         [Fact]
-        public void Principal_missing_primary_key()
+        public virtual void Principal_missing_primary_key()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("NoPrincipalPk" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("NoPrincipalPk" + DbSuffix))
             {
-                testStore.ExecuteNonQuery(@"CREATE TABLE IF NOT EXISTS Dependent (
+                testStore.ExecuteNonQuery(@"CREATE TABLE DependentNoPrincipalPk (
     Id PRIMARY KEY,
     PrincipalId INT,
     FOREIGN KEY (PrincipalId) REFERENCES Principal(Id)
 );
-CREATE TABLE IF NOT EXISTS Principal ( Id INT);");
+CREATE TABLE Principal ( Id INT);");
 
                 var results = Generator.Generate(
                     testStore.ConnectionString,
@@ -272,16 +275,16 @@ CREATE TABLE IF NOT EXISTS Principal ( Id INT);");
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Contains("warn: " + DesignStrings.MissingPrimaryKey("Principal"), _reporter.Messages);
-                Assert.Contains("warn: " + DesignStrings.UnableToGenerateEntityType("Principal"), _reporter.Messages);
-                Assert.Contains("warn: " + DesignStrings.ForeignKeyScaffoldErrorPrincipalTableScaffoldingError("Dependent(PrincipalId)", "Principal"), _reporter.Messages);
+                Assert.Contains("warn: " + DesignStrings.MissingPrimaryKey("Principal"), Reporter.Messages);
+                Assert.Contains("warn: " + DesignStrings.UnableToGenerateEntityType("Principal"), Reporter.Messages);
+                Assert.Contains("warn: " + DesignStrings.ForeignKeyScaffoldErrorPrincipalTableScaffoldingError("DependentNoPrincipalPk(PrincipalId)", "Principal"), Reporter.Messages);
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "NoPrincipalPk"))
                 {
                     Files =
                     {
                         "NoPrincipalPk" + DbSuffix + "Context.cs",
-                        "Dependent.cs"
+                        "DependentNoPrincipalPk.cs"
                     }
                 };
                 var actualFileSet = new FileSet(InMemoryFiles, TestProjectFullPath)
@@ -294,22 +297,22 @@ CREATE TABLE IF NOT EXISTS Principal ( Id INT);");
         }
 
         [Fact]
-        public void It_handles_unsafe_names()
+        public virtual void It_handles_unsafe_names()
         {
-            using (var testStore = SqliteTestStore.CreateScratch())
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("UnsafeNames" + DbSuffix))
             {
                 testStore.ExecuteNonQuery(@"
-CREATE TABLE IF NOT EXISTS 'Named with space' ( Id PRIMARY KEY );
-CREATE TABLE IF NOT EXISTS '123 Invalid Class Name' ( Id PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS 'Bad characters `~!@#$%^&*()+=-[];''"",.<>/?|\ ' ( Id PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS ' Bad columns ' (
+CREATE TABLE 'Named with space' ( Id PRIMARY KEY );
+CREATE TABLE '123 Invalid Class Name' ( Id PRIMARY KEY);
+CREATE TABLE 'Bad characters `~!@#$%^&*()+=-[];''"",.<>/?|\ ' ( Id PRIMARY KEY);
+CREATE TABLE ' Bad columns ' (
     'Space jam' PRIMARY KEY,
     '123 Go`',
     'Bad to the bone. `~!@#$%^&*()+=-[];''"",.<>/?|\ ',
     'Next one is all bad',
     '@#$%^&*()'
 );
-CREATE TABLE IF NOT EXISTS Keywords (
+CREATE TABLE Keywords (
     namespace PRIMARY KEY,
     virtual,
     public,
@@ -317,7 +320,7 @@ CREATE TABLE IF NOT EXISTS Keywords (
     string,
     FOREIGN KEY (class) REFERENCES string (string)
 );
-CREATE TABLE IF NOT EXISTS String (
+CREATE TABLE String (
     string PRIMARY KEY,
     FOREIGN KEY (string) REFERENCES String (string)
 );
@@ -335,7 +338,7 @@ CREATE TABLE IF NOT EXISTS String (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var files = new FileSet(InMemoryFiles, TestProjectFullPath)
                 {
@@ -348,14 +351,14 @@ CREATE TABLE IF NOT EXISTS String (
         [Fact]
         public virtual void Foreign_key_to_unique_index()
         {
-            using (var testStore = SqliteTestStore.GetOrCreateShared("FkToAltKey" + DbSuffix))
+            using (var testStore = SqliteTestStore.GetOrCreateInitialized("FkToAltKey" + DbSuffix))
             {
                 testStore.ExecuteNonQuery(@"
-CREATE TABLE IF NOT EXISTS User (
+CREATE TABLE User (
     Id INTEGER PRIMARY KEY,
     AltId INTEGER NOT NULL UNIQUE
 );
-CREATE TABLE IF NOT EXISTS Comment (
+CREATE TABLE Comment (
     Id INTEGER PRIMARY KEY,
     UserAltId INTEGER NOT NULL,
     Contents TEXT,
@@ -374,7 +377,7 @@ CREATE TABLE IF NOT EXISTS Comment (
                     overwriteFiles: false,
                     useDatabaseNames: false);
 
-                Assert.Empty(_reporter.Messages.Where(m => m.StartsWith("warn: ")));
+                Assert.Empty(Reporter.Messages.Where(m => m.StartsWith("warn: ")));
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(), Path.Combine(ExpectedResultsParentDir, "FkToAltKey"))
                 {
@@ -396,16 +399,13 @@ CREATE TABLE IF NOT EXISTS Comment (
 
         protected override ICollection<BuildReference> References { get; } = new List<BuildReference>
         {
-            BuildReference.ByName("Microsoft.EntityFrameworkCore.Sqlite"),
             BuildReference.ByName("Microsoft.EntityFrameworkCore"),
-            BuildReference.ByName("Microsoft.EntityFrameworkCore.Relational")
+            BuildReference.ByName("Microsoft.EntityFrameworkCore.Relational"),
+            BuildReference.ByName("Microsoft.EntityFrameworkCore.Sqlite")
         };
 
         protected abstract string DbSuffix { get; } // will be used to create different databases so tests running in parallel don't interfere
         protected abstract string ExpectedResultsParentDir { get; }
         protected abstract bool UseDataAnnotations { get; }
-
-        protected override void ConfigureDesignTimeServices(IServiceCollection services)
-            => new SqliteDesignTimeServices().ConfigureDesignTimeServices(services);
     }
 }

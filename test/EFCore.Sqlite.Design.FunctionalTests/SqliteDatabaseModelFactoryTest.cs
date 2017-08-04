@@ -1,7 +1,6 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore.Design.Internal;
@@ -10,34 +9,24 @@ using Microsoft.EntityFrameworkCore.Scaffolding;
 using Microsoft.EntityFrameworkCore.Scaffolding.Internal;
 using Microsoft.EntityFrameworkCore.Scaffolding.Metadata;
 using Microsoft.EntityFrameworkCore.TestUtilities;
+using Microsoft.EntityFrameworkCore.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
+// ReSharper disable InconsistentNaming
 namespace Microsoft.EntityFrameworkCore
 {
-    public class SqliteDatabaseModelFactoryTest : IDisposable
+    public class SqliteDatabaseModelFactoryTest : IClassFixture<SqliteDatabaseModelFactoryTest.SqliteDatabaseModelFixture>
     {
-        private readonly SqliteTestStore _testStore;
-        private readonly SqliteDatabaseModelFactory _factory;
+        protected SqliteDatabaseModelFixture Fixture { get; }
 
-        public SqliteDatabaseModelFactoryTest()
-        {
-            _testStore = SqliteTestStore.CreateScratch();
-
-            var reporter = new TestOperationReporter();
-            var serviceCollection = new ServiceCollection().AddScaffolding(reporter)
-                .AddSingleton<IOperationReporter>(reporter);
-            new SqliteDesignTimeServices().ConfigureDesignTimeServices(serviceCollection);
-
-            var serviceProvider = serviceCollection.BuildServiceProvider();
-
-            _factory = serviceProvider
-                .GetService<IDatabaseModelFactory>() as SqliteDatabaseModelFactory;
-        }
+        public SqliteDatabaseModelFactoryTest(SqliteDatabaseModelFixture fixture) => Fixture = fixture;
 
         [Fact]
         public void It_reads_tables()
         {
+            Fixture.TestStore.Clean(Fixture.CreateContext());
+
             var sql = @"CREATE TABLE [Everest] ( id int );  CREATE TABLE [Denali] ( id int );";
 
             var dbModel = CreateModel(sql);
@@ -56,7 +45,7 @@ namespace Microsoft.EntityFrameworkCore
 
             var dbModel = CreateModel(sql);
 
-            var fk = Assert.Single(dbModel.Tables.Single(t => t.ForeignKeys.Count > 0).ForeignKeys);
+            var fk = Assert.Single(dbModel.Tables.Single(t => t.Name == "Mountains").ForeignKeys);
 
             Assert.Equal("Mountains", fk.Table.Name);
             Assert.Equal("Ranges", fk.PrincipalTable.Name);
@@ -68,29 +57,44 @@ namespace Microsoft.EntityFrameworkCore
         [Fact]
         public void It_reads_composite_foreign_keys()
         {
-            var sql = "CREATE TABLE Ranges ( Id INT IDENTITY (1,1), AltId INT, PRIMARY KEY(Id, AltId));" +
-                      "CREATE TABLE Mountains ( RangeId INT NOT NULL, RangeAltId INT NOT NULL, FOREIGN KEY (RangeId, RangeAltId) " +
-                      " REFERENCES Ranges(Id, AltId) ON DELETE NO ACTION)";
+            var sql = "CREATE TABLE CompositeRanges ( Id INT IDENTITY (1,1), AltId INT, PRIMARY KEY(Id, AltId));" +
+                      "CREATE TABLE CompositeMountains ( RangeId INT NOT NULL, RangeAltId INT NOT NULL, FOREIGN KEY (RangeId, RangeAltId) " +
+                      " REFERENCES CompositeRanges(Id, AltId) ON DELETE NO ACTION)";
             var dbModel = CreateModel(sql);
 
             var fk = Assert.Single(dbModel.Tables.Single(t => t.ForeignKeys.Count > 0).ForeignKeys);
 
-            Assert.Equal("Mountains", fk.Table.Name);
-            Assert.Equal("Ranges", fk.PrincipalTable.Name);
+            Assert.NotNull(fk);
+            Assert.Equal("CompositeMountains", fk.Table.Name);
+            Assert.Equal("CompositeRanges", fk.PrincipalTable.Name);
             Assert.Equal(new[] { "RangeId", "RangeAltId" }, fk.Columns.Select(c => c.Name).ToArray());
             Assert.Equal(new[] { "Id", "AltId" }, fk.PrincipalColumns.Select(c => c.Name).ToArray());
             Assert.Equal(ReferentialAction.NoAction, fk.OnDelete);
         }
 
         [Fact]
-        public void It_reads_indexes()
+        public void It_reads_indexes_unique_constraints_and_primary_keys()
         {
             var sql = "CREATE TABLE Place ( Id int PRIMARY KEY, Name int UNIQUE, Location int);" +
                       "CREATE INDEX IX_Location_Name ON Place (Location, Name);";
 
             var dbModel = CreateModel(sql);
 
-            var indexes = dbModel.Tables.Single().Indexes;
+            var table = dbModel.Tables.Single(t => t.Name == "Place");
+            var pkIndex = table.PrimaryKey;
+
+            Assert.Equal("Place", pkIndex.Table.Name);
+            Assert.Equal(new List<string> { "Id" }, pkIndex.Columns.Select(ic => ic.Name).ToList());
+
+            var constraints = table.UniqueConstraints;
+
+            Assert.All(constraints, c => { Assert.Equal("Place", c.Table.Name); });
+
+            Assert.Collection(
+                constraints,
+                unique => { Assert.Equal("Name", unique.Columns.Single().Name); });
+
+            var indexes = table.Indexes;
 
             Assert.All(indexes, c => { Assert.Equal("Place", c.Table.Name); });
 
@@ -102,40 +106,6 @@ namespace Microsoft.EntityFrameworkCore
                         Assert.False(index.IsUnique);
                         Assert.Equal(new List<string> { "Location", "Name" }, index.Columns.Select(ic => ic.Name).ToList());
                     });
-        }
-
-        [Fact]
-        public void It_reads_primary_key()
-        {
-            var sql = "CREATE TABLE Place ( Id int PRIMARY KEY, Name int UNIQUE, Location int);" +
-                      "CREATE INDEX IX_Location_Name ON Place (Location, Name);";
-
-            var dbModel = CreateModel(sql);
-
-            var pkIndex = dbModel.Tables.Single().PrimaryKey;
-
-            Assert.Equal("Place", pkIndex.Table.Name);
-            Assert.Equal(new List<string> { "Id" }, pkIndex.Columns.Select(ic => ic.Name).ToList());
-        }
-
-        [Fact]
-        public void It_reads_unique_constraints()
-        {
-            var sql = "CREATE TABLE Place ( Id int PRIMARY KEY, Name int UNIQUE, Location int);" +
-                      "CREATE INDEX IX_Location_Name ON Place (Location, Name);";
-
-            var dbModel = CreateModel(sql);
-
-            var indexes = dbModel.Tables.Single().UniqueConstraints;
-
-            Assert.All(indexes, c => { Assert.Equal("Place", c.Table.Name); });
-
-            Assert.Collection(
-                indexes,
-                unique =>
-                {
-                    Assert.Equal("Name", unique.Columns.Single().Name);
-                });
         }
 
         [Fact]
@@ -195,16 +165,37 @@ CREATE TABLE [Kilimanjaro] ( Id int);";
 
             var dbModel = CreateModel(sql, selectionSet);
             var table = Assert.Single(dbModel.Tables);
+            Assert.NotNull(table);
             Assert.Equal("K2", table.Name);
         }
 
         public DatabaseModel CreateModel(string createSql, IEnumerable<string> tables = null)
         {
-            _testStore.ExecuteNonQuery(createSql);
+            Fixture.TestStore.ExecuteNonQuery(createSql);
 
-            return _factory.Create(_testStore.ConnectionString, tables ?? Enumerable.Empty<string>(), Enumerable.Empty<string>());
+            return Fixture.Factory.Create(Fixture.TestStore.ConnectionString, tables ?? Enumerable.Empty<string>(), Enumerable.Empty<string>());
         }
 
-        public void Dispose() => _testStore.Dispose();
+        public class SqliteDatabaseModelFixture : SharedStoreFixtureBase<DbContext>
+        {
+            protected override string StoreName { get; } = "DatabaseModelTest";
+            protected override ITestStoreFactory<TestStore> TestStoreFactory => SqliteTestStoreFactory.Instance;
+            public new SqliteTestStore TestStore => (SqliteTestStore)base.TestStore;
+            public TestDesignLoggerFactory TestDesignLoggerFactory { get; } = new TestDesignLoggerFactory();
+            public SqliteDatabaseModelFactory Factory { get; }
+
+            public SqliteDatabaseModelFixture()
+            {
+                var reporter = new TestOperationReporter();
+                var serviceCollection = new ServiceCollection().AddScaffolding(reporter)
+                    .AddSingleton<IOperationReporter>(reporter);
+                new SqliteDesignTimeServices().ConfigureDesignTimeServices(serviceCollection);
+
+                var serviceProvider = serviceCollection.BuildServiceProvider();
+
+                Factory = serviceProvider
+                    .GetService<IDatabaseModelFactory>() as SqliteDatabaseModelFactory;
+            }
+        }
     }
 }

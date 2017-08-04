@@ -14,9 +14,8 @@ namespace Microsoft.EntityFrameworkCore.ReverseEngineering
         private readonly Func<string, string> _contentsReplacementFunc;
 
         public FileSet(IFileService fileService, string directory)
+            : this(fileService, directory, null)
         {
-            _fileService = fileService;
-            Directory = directory;
         }
 
         public FileSet(IFileService fileService, string directory, Func<string, string> contentsReplacementFunc)

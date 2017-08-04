@@ -1,43 +1,38 @@
-// Copyright (c) .NET Foundation. All rights reserved.
+﻿﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System.Collections.Generic;
-using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
-using Microsoft.EntityFrameworkCore.Design.Internal;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Scaffolding.Internal;
 using Microsoft.EntityFrameworkCore.TestUtilities;
 using Microsoft.EntityFrameworkCore.TestUtilities.Xunit;
 using Microsoft.EntityFrameworkCore.Utilities;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
 
+// ReSharper disable AccessToDisposedClosure
+// ReSharper disable StringStartsWithIsCultureSpecific
+// ReSharper disable InconsistentNaming
 namespace Microsoft.EntityFrameworkCore.ReverseEngineering
 {
-    public class SqlServerE2ETests : E2ETestBase
+    public class SqlServerE2ETests : E2ETestBase<SqlServerE2EFixture>
     {
-        protected override string ProviderName => "Microsoft.EntityFrameworkCore.SqlServer.Design";
-
-        protected override void ConfigureDesignTimeServices(IServiceCollection services)
-            => new SqlServerDesignTimeServices().ConfigureDesignTimeServices(services);
-
         public virtual string TestNamespace => "E2ETest.Namespace";
         public virtual string TestProjectDir => Path.Combine("E2ETest", "Output");
 
-        public SqlServerE2ETests(ITestOutputHelper output)
-            : base(output)
+        public SqlServerE2ETests(SqlServerE2EFixture fixture, ITestOutputHelper output)
+            : base(fixture, output)
         {
         }
 
         [Fact]
         public void Non_null_boolean_columns_with_default_constraint_become_nullable_properties()
         {
-            using (var scratch = SqlServerTestStore.Create("NonNullBooleanWithDefaultConstraint"))
+            using (var testStore = SqlServerTestStore.CreateInitialized("NonNullBooleanWithDefaultConstraint"))
             {
-                scratch.ExecuteNonQuery(@"
+                testStore.ExecuteNonQuery(@"
 CREATE TABLE NonNullBoolWithDefault
 (
      Id int NOT NULL PRIMARY KEY CLUSTERED,
@@ -47,35 +42,34 @@ CREATE TABLE NonNullBoolWithDefault
 
                 var expectedFileSet = new FileSet(new FileSystemFileService(),
                     Path.Combine("ReverseEngineering", "Expected"),
-                    contents => contents.Replace("{{connectionString}}", scratch.ConnectionString))
+                    contents => contents.Replace("{{connectionString}}", testStore.ConnectionString))
                 {
                     Files = new List<string>
                     {
                         "NonNullBoolWithDefaultContext.cs",
-                        "NonNullBoolWithDefault.cs",
+                        "NonNullBoolWithDefault.cs"
                     }
                 };
 
                 var filePaths = Generator.Generate(
-                        scratch.ConnectionString,
-                        Enumerable.Empty<string>(),
-                        Enumerable.Empty<string>(),
-                        TestProjectDir + Path.DirectorySeparatorChar,
-                        outputPath: null, // not used for this test
-                        rootNamespace: TestNamespace,
-                        contextName: "NonNullBoolWithDefaultContext",
-                        useDataAnnotations: false,
-                        overwriteFiles: false,
-                        useDatabaseNames: false);
-
+                    testStore.ConnectionString,
+                    Enumerable.Empty<string>(),
+                    Enumerable.Empty<string>(),
+                    TestProjectDir + Path.DirectorySeparatorChar,
+                    outputPath: null, // not used for this test
+                    rootNamespace: TestNamespace,
+                    contextName: "NonNullBoolWithDefaultContext",
+                    useDataAnnotations: false,
+                    overwriteFiles: false,
+                    useDatabaseNames: false);
 
                 var actualFileSet = new FileSet(InMemoryFiles, Path.GetFullPath(TestProjectDir))
                 {
                     Files = new[] { filePaths.ContextFile }.Concat(filePaths.EntityTypeFiles).Select(Path.GetFileName).ToList()
                 };
 
-                Assert.Contains("warn: " + DesignStrings.NonNullableBoooleanColumnHasDefaultConstraint("dbo.NonNullBoolWithDefault.BoolWithDefaultValueSql"), _reporter.Messages);
-                Assert.Equal(1, _reporter.Messages.Count(m => m.StartsWith("warn: ")));
+                Assert.Contains("warn: " + DesignStrings.NonNullableBoooleanColumnHasDefaultConstraint("dbo.NonNullBoolWithDefault.BoolWithDefaultValueSql"), Reporter.Messages);
+                Assert.Equal(1, Reporter.Messages.Count(m => m.StartsWith("warn: ")));
 
                 AssertEqualFileContents(expectedFileSet, actualFileSet);
                 AssertCompile(actualFileSet);
@@ -85,7 +79,7 @@ CREATE TABLE NonNullBoolWithDefault
         [ConditionalFact]
         public void Correct_arguments_to_scaffolding_typemapper()
         {
-            using (var scratch = SqlServerTestStore.Create("StringKeys"))
+            using (var scratch = SqlServerTestStore.CreateInitialized("StringKeys"))
             {
                 scratch.ExecuteNonQuery(@"
 CREATE TABLE [StringKeysBlogs] (
@@ -117,7 +111,7 @@ CREATE INDEX [IX_StringKeysPosts_BlogAlternateKey] ON [StringKeysPosts] ([BlogAl
                     {
                         "StringKeysContext.cs",
                         "StringKeysBlogs.cs",
-                        "StringKeysPosts.cs",
+                        "StringKeysPosts.cs"
                     }
                 };
 
@@ -145,9 +139,9 @@ CREATE INDEX [IX_StringKeysPosts_BlogAlternateKey] ON [StringKeysPosts] ([BlogAl
 
         protected override ICollection<BuildReference> References { get; } = new List<BuildReference>
         {
-            BuildReference.ByName("Microsoft.EntityFrameworkCore.SqlServer"),
             BuildReference.ByName("Microsoft.EntityFrameworkCore"),
-            BuildReference.ByName("Microsoft.EntityFrameworkCore.Relational")
+            BuildReference.ByName("Microsoft.EntityFrameworkCore.Relational"),
+            BuildReference.ByName("Microsoft.EntityFrameworkCore.SqlServer")
         };
     }
 }

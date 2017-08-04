@@ -6,7 +6,7 @@ namespace E2E.Sqlite
 {
     public partial class NoPrincipalPkAttributesContext : DbContext
     {
-        public virtual DbSet<Dependent> Dependent { get; set; }
+        public virtual DbSet<DependentNoPrincipalPk> DependentNoPrincipalPk { get; set; }
 
         // Unable to generate entity type for table 'Principal'. Please see the warning messages.
 
@@ -15,13 +15,13 @@ namespace E2E.Sqlite
             if (!optionsBuilder.IsConfigured)
             {
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. See http://go.microsoft.com/fwlink/?LinkId=723263 for guidance on storing connection strings.
-                optionsBuilder.UseSqlite(@"Data Source=NoPrincipalPkAttributes.db;Cache=Private");
+                optionsBuilder.UseSqlite(@"Data Source=NoPrincipalPkAttributes.db;Cache=Shared");
             }
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.Entity<Dependent>(entity =>
+            modelBuilder.Entity<DependentNoPrincipalPk>(entity =>
             {
                 entity.Property(e => e.Id).ValueGeneratedNever();
             });

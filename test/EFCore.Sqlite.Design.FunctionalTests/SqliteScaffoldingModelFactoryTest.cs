@@ -1,7 +1,6 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore.Design.Internal;
@@ -10,31 +9,22 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.EntityFrameworkCore.Scaffolding.Internal;
 using Microsoft.EntityFrameworkCore.TestUtilities;
+using Microsoft.EntityFrameworkCore.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
+// ReSharper disable PossibleNullReferenceException
+// ReSharper disable InconsistentNaming
 namespace Microsoft.EntityFrameworkCore
 {
-    public class SqliteScaffoldingModelFactoryTest : IDisposable
+    public class SqliteScaffoldingModelFactoryTest : IClassFixture<SqliteScaffoldingModelFactoryTest.SqliteScaffoldingModelFactoryFixture>
     {
-        private readonly RelationalScaffoldingModelFactory _scaffoldingModelFactory;
-        private readonly SqliteTestStore _testStore;
-        private readonly TestOperationReporter _reporter = new TestOperationReporter();
+        protected SqliteScaffoldingModelFactoryFixture Fixture { get; }
 
-        public SqliteScaffoldingModelFactoryTest()
+        public SqliteScaffoldingModelFactoryTest(SqliteScaffoldingModelFactoryFixture fixture)
         {
-            _testStore = SqliteTestStore.CreateScratch();
-
-            var serviceCollection = new ServiceCollection().AddScaffolding(_reporter)
-                .AddSingleton<IOperationReporter>(_reporter);
-            new SqliteDesignTimeServices().ConfigureDesignTimeServices(serviceCollection);
-
-            var serviceProvider = serviceCollection
-                .AddSingleton<IFileService, FileSystemFileService>()
-                .BuildServiceProvider();
-
-            _scaffoldingModelFactory = serviceProvider
-                .GetService<IScaffoldingModelFactory>() as RelationalScaffoldingModelFactory;
+            Fixture = fixture;
+            fixture.Reporter.Clear();
         }
 
         [Fact]
@@ -108,7 +98,7 @@ namespace Microsoft.EntityFrameworkCore
         [Fact]
         public void It_gets_indexes()
         {
-            var entityType = GetModel("CREATE TABLE t (Id int, A text PRIMARY KEY); CREATE INDEX idx_1 on t (id, a);").FindEntityType("T");
+            var entityType = GetModel("CREATE TABLE t1 (Id int, A text PRIMARY KEY); CREATE INDEX idx_1 on t1 (id, a);").FindEntityType("T1");
 
             var idx = entityType.GetIndexes().Last();
             Assert.False(idx.IsUnique);
@@ -144,17 +134,17 @@ namespace Microsoft.EntityFrameworkCore
         [Fact]
         public void It_loads_composite_key_references()
         {
-            var sql = @"CREATE TABLE Parent ( Id_A INT, Id_B INT, PRIMARY KEY (ID_A, id_b) );
-                        CREATE TABLE Children (
+            var sql = @"CREATE TABLE CompositeParent ( Id_A INT, Id_B INT, PRIMARY KEY (ID_A, id_b) );
+                        CREATE TABLE CompositeChildren (
                             Id INT PRIMARY KEY,
                             ParentId_A INT,
                             ParentId_B INT,
-                            FOREIGN KEY (parentid_A, parentid_B) REFERENCES parent (id_a, id_b)
+                            FOREIGN KEY (parentid_A, parentid_B) REFERENCES CompositeParent (id_a, id_b)
                         );";
 
             var model = GetModel(sql);
-            var parent = model.FindEntityType("Parent");
-            var children = model.FindEntityType("Children");
+            var parent = model.FindEntityType("CompositeParent");
+            var children = model.FindEntityType("CompositeChildren");
 
             Assert.NotEmpty(parent.GetReferencingForeignKeys());
             Assert.NotEmpty(children.GetForeignKeys());
@@ -165,7 +155,7 @@ namespace Microsoft.EntityFrameworkCore
                 (Property)children.FindProperty("ParentIdB")
             };
             var principalKey = children.FindForeignKeys(propList.AsReadOnly()).SingleOrDefault().PrincipalKey;
-            Assert.Equal("Parent", principalKey.DeclaringEntityType.Name);
+            Assert.Equal("CompositeParent", principalKey.DeclaringEntityType.Name);
             Assert.Equal("IdA", principalKey.Properties[0].Name);
             Assert.Equal("IdB", principalKey.Properties[1].Name);
         }
@@ -194,46 +184,46 @@ namespace Microsoft.EntityFrameworkCore
         public void It_logs_warning_for_bad_foreign_key_principal_table()
         {
             // will fail because the referenced table, Parent, is not found
-            var sql = @"CREATE TABLE Children (
+            var sql = @"CREATE TABLE OrphanChildren (
                             Id INT PRIMARY KEY,
                             ParentId INT,
-                            FOREIGN KEY (ParentId) REFERENCES Parent (Id)
+                            FOREIGN KEY (ParentId) REFERENCES NonExistentParent (Id)
                         );";
 
             GetModel(sql);
 
             Assert.Contains(
                 "warn: " + SqliteStrings.LogForeignKeyScaffoldErrorPrincipalTableNotFound.GenerateMessage("0"),
-                _reporter.Messages);
+                Fixture.Reporter.Messages);
         }
 
         [Fact]
         public void It_logs_warning_for_bad_foreign_key_column()
         {
             // will fail because the referenced column, Id, is not found
-            var sql = @"CREATE TABLE Parent ( Name PRIMARY KEY);
-                        CREATE TABLE Children (
+            var sql = @"CREATE TABLE BadParent ( Name PRIMARY KEY);
+                        CREATE TABLE BadChildren (
                             Id INT PRIMARY KEY,
                             ParentId INT,
-                            FOREIGN KEY (ParentId) REFERENCES Parent (Id)
+                            FOREIGN KEY (ParentId) REFERENCES BadParent (Id)
                         );";
 
             GetModel(sql);
 
             Assert.Contains(
-                "warn: " + SqliteStrings.LogPrincipalColumnNotFound.GenerateMessage("0", "Children", "Id", "Parent"),
-                _reporter.Messages);
+                "warn: " + SqliteStrings.LogPrincipalColumnNotFound.GenerateMessage("0", "BadChildren", "Id", "BadParent"),
+                Fixture.Reporter.Messages);
         }
 
         [Fact]
         public void It_assigns_uniqueness_to_foreign_key()
         {
-            var sql = @"CREATE TABLE Friends (
+            var sql = @"CREATE TABLE UniqueFriends (
     Id PRIMARY KEY,
     BuddyId UNIQUE,
-    FOREIGN KEY (BuddyId) REFERENCES Friends(Id)
+    FOREIGN KEY (BuddyId) REFERENCES UniqueFriends(Id)
 );";
-            var table = GetModel(sql).FindEntityType("Friends");
+            var table = GetModel(sql).FindEntityType("UniqueFriends");
 
             var fk = table.FindForeignKeys(new[] { table.FindProperty("BuddyId") }).SingleOrDefault();
 
@@ -245,12 +235,12 @@ namespace Microsoft.EntityFrameworkCore
         public void It_assigns_uniqueness_to_pk_foreign_key()
         {
             var sql = @"
-CREATE TABLE Family (Id PRIMARY KEY);
-CREATE TABLE Friends (
+CREATE TABLE PkFamily (Id PRIMARY KEY);
+CREATE TABLE PkFriends (
     Id PRIMARY KEY,
-    FOREIGN KEY (Id) REFERENCES Family(Id)
+    FOREIGN KEY (Id) REFERENCES PkFamily(Id)
 );";
-            var table = GetModel(sql).FindEntityType("Friends");
+            var table = GetModel(sql).FindEntityType("PkFriends");
 
             var fk = table.FindForeignKeys(new[] { table.FindProperty("Id") }).SingleOrDefault();
 
@@ -275,12 +265,12 @@ CREATE TABLE Friends (
         [Fact]
         public void It_assigns_uniqueness_to_composite_foreign_key()
         {
-            var sql = @"CREATE TABLE DoubleMint ( A , B, PRIMARY KEY (A,B));
-CREATE TABLE Gum ( A, B PRIMARY KEY,
+            var sql = @"CREATE TABLE CompositeDoubleMint ( A , B, PRIMARY KEY (A,B));
+CREATE TABLE CompositeGum ( A, B PRIMARY KEY,
     UNIQUE (A,B),
-    FOREIGN KEY (A, B) REFERENCES DoubleMint (A, B)
+    FOREIGN KEY (A, B) REFERENCES CompositeDoubleMint (A, B)
 );";
-            var dependent = GetModel(sql).FindEntityType("Gum");
+            var dependent = GetModel(sql).FindEntityType("CompositeGum");
             var foreignKey = dependent.FindForeignKeys(new[] { dependent.FindProperty("A"), dependent.FindProperty("B") }).SingleOrDefault();
 
             Assert.True(foreignKey.IsUnique);
@@ -301,10 +291,33 @@ CREATE TABLE Gum ( A, B PRIMARY KEY,
 
         private IModel GetModel(string createSql)
         {
-            _testStore.ExecuteNonQuery(createSql);
-            return _scaffoldingModelFactory.Create(_testStore.ConnectionString, Enumerable.Empty<string>(), Enumerable.Empty<string>(), false);
+            Fixture.TestStore.ExecuteNonQuery(createSql);
+            return Fixture.ScaffoldingModelFactory
+                .Create(Fixture.TestStore.ConnectionString, Enumerable.Empty<string>(), Enumerable.Empty<string>(), false);
         }
+        
+        public class SqliteScaffoldingModelFactoryFixture : SharedStoreFixtureBase<DbContext>
+        {
+            protected override string StoreName { get; } = "ScaffoldingModelTest";
+            protected override ITestStoreFactory<TestStore> TestStoreFactory => SqliteTestStoreFactory.Instance;
+            public new SqliteTestStore TestStore => (SqliteTestStore)base.TestStore;
+            public TestOperationReporter Reporter { get; } = new TestOperationReporter();
+            public RelationalScaffoldingModelFactory ScaffoldingModelFactory { get; }
 
-        public void Dispose() => _testStore.Dispose();
+            public SqliteScaffoldingModelFactoryFixture()
+            {
+                var serviceCollection = new ServiceCollection().AddScaffolding(Reporter)
+                .AddSingleton<IOperationReporter>(Reporter);
+
+                new SqliteDesignTimeServices().ConfigureDesignTimeServices(serviceCollection);
+
+                var serviceProvider = serviceCollection
+                    .AddSingleton<IFileService, FileSystemFileService>()
+                    .BuildServiceProvider();
+
+                ScaffoldingModelFactory = serviceProvider
+                    .GetService<IScaffoldingModelFactory>() as RelationalScaffoldingModelFactory;
+            }
+        }
     }
 }

@@ -4,49 +4,32 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.EntityFrameworkCore.Design.Internal;
 using Microsoft.EntityFrameworkCore.Scaffolding.Internal;
 using Microsoft.EntityFrameworkCore.TestUtilities;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
 
 namespace Microsoft.EntityFrameworkCore.ReverseEngineering
 {
-    public abstract class E2ETestBase
+    public abstract class E2ETestBase<TFixture> : IClassFixture<TFixture>
+        where TFixture : E2EFixture, new()
     {
         private readonly ITestOutputHelper _output;
-        protected TestOperationReporter _reporter;
-        protected InMemoryFileService InMemoryFiles;
-        protected readonly IModelScaffolder Generator;
-        protected readonly IScaffoldingModelFactory ScaffoldingModelFactory;
 
-        protected E2ETestBase(ITestOutputHelper output)
+        protected E2ETestBase(TFixture fixture, ITestOutputHelper output)
         {
             _output = output;
-
-            _reporter = new TestOperationReporter();
-
-            var serviceBuilder = new ServiceCollection()
-                .AddSingleton<IOperationReporter>(_reporter)
-                .AddScaffolding(_reporter)
-                .AddLogging();
-
-            ConfigureDesignTimeServices(serviceBuilder);
-
-            var serviceProvider = serviceBuilder
-                .AddSingleton(typeof(IFileService), sp => InMemoryFiles = new InMemoryFileService())
-                .BuildServiceProvider();
-
-            Generator = serviceProvider.GetRequiredService<IModelScaffolder>();
-            ScaffoldingModelFactory = serviceProvider.GetRequiredService<IScaffoldingModelFactory>();
+            Fixture = fixture;
+            fixture.Reporter.Clear();
         }
 
+        protected TFixture Fixture { get; }
+        protected TestOperationReporter Reporter => Fixture.Reporter;
+        protected InMemoryFileService InMemoryFiles => Fixture.InMemoryFiles;
+        protected IModelScaffolder Generator => Fixture.Generator;
+        protected IScaffoldingModelFactory ScaffoldingModelFactory => Fixture.ScaffoldingModelFactory;
         protected abstract ICollection<BuildReference> References { get; }
-        protected abstract string ProviderName { get; }
-
-        protected abstract void ConfigureDesignTimeServices(IServiceCollection services);
 
         protected virtual void AssertEqualFileContents(FileSet expected, FileSet actual)
         {
